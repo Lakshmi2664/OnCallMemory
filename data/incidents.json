@@ -1,0 +1,167 @@
+[
+  {
+    "id": "INC-1001",
+    "service": "auth-service",
+    "symptoms": "High latency and HTTP 500 error spikes on POST /v1/auth/login during traffic spikes.",
+    "error_log": "org.postgresql.util.PSQLException: FATAL: remaining connection slots are reserved for non-replication superuser connections\n  at org.postgresql.core.v3.QueryExecutorImpl.receiveErrorResponse(QueryExecutorImpl.java:2555)\n  at com.zaxxer.hikari.pool.HikariPool.checkInUseConnections(HikariPool.java:412)",
+    "metrics": "HikariCP active connections: 50/50 (100%), p99 response time: 8500ms, DB connection wait queue: 142 clients.",
+    "root_cause": "Database connection pool exhaustion caused by unclosed DB connections in OAuth token generation error handler.",
+    "fix": "Wrapped token generator DB queries in try-with-resources block and increased maxHikariPoolSize from 50 to 100.",
+    "time_to_resolve_minutes": 45,
+    "timestamp": "2024-01-10T14:22:00Z"
+  },
+  {
+    "id": "INC-1002",
+    "service": "payment-gateway",
+    "symptoms": "Intermittent HTTP 504 Gateway Timeout when processing Stripe webhooks.",
+    "error_log": "requests.exceptions.ConnectTimeout: HTTPSConnectionPool(host='api.stripe.com', port=443): Max retries exceeded with url: /v1/charges (Caused by ConnectTimeoutError)",
+    "metrics": "Outbound egress packet drop rate: 12%, TCP retransmission rate: 18%, average HTTP request latency: 30000ms.",
+    "root_cause": "NAT Gateway port exhaustion in AWS us-east-1 subnet due to lack of connection pooling on Stripe SDK instances.",
+    "fix": "Reconfigured Stripe client SDK to reuse TCP connections via urllib3 ConnectionPool and provisioned additional NAT Gateway.",
+    "time_to_resolve_minutes": 60,
+    "timestamp": "2024-01-15T09:15:00Z"
+  },
+  {
+    "id": "INC-1003",
+    "service": "user-profile-api",
+    "symptoms": "Pod crash looping with Error status; OOMKilled events triggered across multiple Kubernetes nodes.",
+    "error_log": "java.lang.OutOfMemoryError: Java heap space\n  at java.util.Arrays.copyOf(Arrays.java:3210)\n  at com.acme.user.service.UserProfileService.exportAllUsers(UserProfileService.java:184)",
+    "metrics": "Pod RSS memory memory_usage_bytes: 2.1GB (Limit: 2.0GB), Container restart count: 18 in 1 hour.",
+    "root_cause": "Bulk export user profile endpoint executed unpaginated SQL query loading 1.5 million user rows into JVM heap.",
+    "fix": "Refactored user export endpoint to stream data using cursor-based pagination and lowered batch fetch size.",
+    "time_to_resolve_minutes": 35,
+    "timestamp": "2024-01-20T11:05:00Z"
+  },
+  {
+    "id": "INC-1004",
+    "service": "checkout-service",
+    "symptoms": "Database queries timing out on payment checkout attempts; database CPU usage pegged at 100%.",
+    "error_log": "asyncpg.exceptions.TooManyConnectionsError: sorry, too many clients already\n  at asyncpg.protocol.protocol.pyx:1120\n  at app.db.checkout_repo.get_cart(checkout_repo.py:88)",
+    "metrics": "PostgreSQL active backend connections: 200/200, CPU utilization: 99.8%, Lock wait timeout count: 85.",
+    "root_cause": "Connection pool depletion due to leaking postgres connections in abandoned shopping cart cleanup task.",
+    "fix": "Ensured background cleanup worker explicitly closes connections back to asyncpg pool and added connection timeout limits.",
+    "time_to_resolve_minutes": 50,
+    "timestamp": "2024-01-25T16:40:00Z"
+  },
+  {
+    "id": "INC-1005",
+    "service": "search-indexer",
+    "symptoms": "Search results stale; Elasticsearch bulk indexing operations failing with 429 Too Many Requests.",
+    "error_log": "[2024-02-01T08:30:12,110][ERROR][o.e.a.b.TransportBulkAction] es-node-01 [search_products][0] rejected execution of org.elasticsearch.common.util.concurrent.EsAbortPolicy@1b89ef5 on EsThreadPoolExecutor[bulk, queue capacity = 200]",
+    "metrics": "Elasticsearch write threadpool queue capacity: 200/200, indexing latency: 1200ms, bulk bulk_rejected index count: 14500.",
+    "root_cause": "Elasticsearch indexing threadpool saturated by burst of concurrent catalog update events from catalog service.",
+    "fix": "Implemented exponential backoff with jitter in bulk indexing worker and increased ES bulk queue size.",
+    "time_to_resolve_minutes": 30,
+    "timestamp": "2024-02-01T08:30:00Z"
+  },
+  {
+    "id": "INC-1006",
+    "service": "notification-service",
+    "symptoms": "SMS and Push notifications failing to deliver; Redis connection errors logged continuously.",
+    "error_log": "redis.exceptions.ConnectionError: Error 111 connecting to 10.0.12.45:6379. Connection refused.\n  at redis.connection.Connection.connect(connection.py:614)",
+    "metrics": "Redis memory usage: 100% (4.0GB maxmemory hit), evicted keys: 0 (noeviction policy), connection attempts failing.",
+    "root_cause": "Redis instance ran out of memory due to unexpired notification rate-limit key buildup and 'noeviction' policy.",
+    "fix": "Changed Redis maxmemory-policy to 'allkeys-lru' and enforced short TTLs on rate-limiting keys.",
+    "time_to_resolve_minutes": 25,
+    "timestamp": "2024-02-05T18:10:00Z"
+  },
+  {
+    "id": "INC-1007",
+    "service": "order-management",
+    "symptoms": "Order fulfillment pipeline stalled; Postgres connection pool exhausted with high wait times.",
+    "error_log": "sqlalchemy.exc.TimeoutError: QueuePool limit of size 20 overflow 10 reached, connection timed out, timeout 30.00\n  at sqlalchemy.pool.impl.QueuePool._do_get(queue.py:388)",
+    "metrics": "Order DB pool utilization: 30/30 connections active, database connection acquisition delay: 30000ms.",
+    "root_cause": "DB connection starvation caused by synchronous third-party inventory API call executed inside database transaction block.",
+    "fix": "Moved external HTTP API call outside DB transaction block and reduced connection timeout.",
+    "time_to_resolve_minutes": 40,
+    "timestamp": "2024-02-10T12:00:00Z"
+  },
+  {
+    "id": "INC-1008",
+    "service": "inventory-service",
+    "symptoms": "HTTP 502 Bad Gateway response on stock check API during promotional sales event.",
+    "error_log": "2024/02/14 14:02:11 [error] 14#14: *10921 upstream timed out (110: Connection timed out) while reading response header from upstream, client: 172.16.0.1, server: api.acme.com",
+    "metrics": "Gunicorn worker timeout count: 42, CPU utilization: 88%, active worker processes hung on lock.",
+    "root_cause": "Row-level lock contention on popular inventory product SKU items during high concurrency checkout.",
+    "fix": "Optimized stock reservation using Redis atomic DECR operations before updating Postgres database records.",
+    "time_to_resolve_minutes": 55,
+    "timestamp": "2024-02-14T14:00:00Z"
+  },
+  {
+    "id": "INC-1009",
+    "service": "analytics-ingest",
+    "symptoms": "Kafka consumer group lag growing exponentially; telemetry pipeline failing to ingest events.",
+    "error_log": "org.apache.kafka.clients.consumer.CommitFailedException: Commit cannot be completed since the group has already rebalanced and assigned the partitions to another member.",
+    "metrics": "Kafka consumer lag: 1.2M messages, max poll interval elapsed: 300,000ms, frequent consumer group rebalances.",
+    "root_cause": "Long-running DB write batches exceeded max.poll.interval.ms, causing Kafka broker to declare consumer dead.",
+    "fix": "Decreased max.poll.records from 500 to 100 and optimized batch insert query performance.",
+    "time_to_resolve_minutes": 40,
+    "timestamp": "2024-02-18T20:30:00Z"
+  },
+  {
+    "id": "INC-1010",
+    "service": "media-processor",
+    "symptoms": "Image thumbnail generation failing; disk space alert triggered on worker nodes.",
+    "error_log": "OSError: [Errno 28] No space left on device: '/tmp/magick-918231'\n  at PIL.Image.save(Image.py:2310)",
+    "metrics": "Root filesystem /tmp disk usage: 100% (50GB full), temp file count: 85,000 files.",
+    "root_cause": "Temporary resized image artifacts in /tmp directory were not deleted after uploading to S3 object storage.",
+    "fix": "Added explicit file cleanup in python finally block and setup cron job to prune /tmp directory hourly.",
+    "time_to_resolve_minutes": 20,
+    "timestamp": "2024-02-22T07:45:00Z"
+  },
+  {
+    "id": "INC-1011",
+    "service": "billing-service",
+    "symptoms": "Invoice generation cron job failing; TLS certificate validation errors in logs.",
+    "error_log": "requests.exceptions.SSLError: HTTPSConnectionPool(host='tax-api.provider.com', port=443): SSL: CERTIFICATE_VERIFY_FAILED certificate has expired (_ssl.c:1007)",
+    "metrics": "Cron execution exit code: 1, failed invoice count: 3200.",
+    "root_cause": "Expired SSL CA bundle certificate in Docker base image used by billing worker.",
+    "fix": "Updated base Docker image ca-certificates package and restarted billing worker daemon.",
+    "time_to_resolve_minutes": 15,
+    "timestamp": "2024-02-26T03:00:00Z"
+  },
+  {
+    "id": "INC-1012",
+    "service": "shipping-calculator",
+    "symptoms": "Rates calculation API returning 500 errors for international addresses.",
+    "error_log": "KeyError: 'postal_code'\n  at app.shipping.fedex.format_address(fedex.py:42)\n  at app.shipping.calculator.get_rate(calculator.py:105)",
+    "metrics": "API Error Rate: 100% for non-US requests, request volume: 450 req/min.",
+    "root_cause": "Missing key handler for optional postal_code field in international shipping address payload.",
+    "fix": "Updated address parser to use dict.get('postal_code', '') with graceful fallback logic.",
+    "time_to_resolve_minutes": 15,
+    "timestamp": "2024-03-01T10:15:00Z"
+  },
+  {
+    "id": "INC-1013",
+    "service": "recommendation-engine",
+    "symptoms": "High latency on homepage load; gRPC deadline exceeded errors.",
+    "error_log": "grpc._channel._InactiveRpcError: <_InactiveRpcError of RPC that terminated with status StatusCode.DEADLINE_EXCEEDED, details = 'Deadline Exceeded'>",
+    "metrics": "gRPC p99 latency: 5000ms (SLA: 200ms), ML model inferencing queue length: 450 requests.",
+    "root_cause": "Model server GPU memory throttling due to unthrottled concurrent batch size.",
+    "fix": "Enforced request concurrency throttling and model batch size limit in Triton Inference Server.",
+    "time_to_resolve_minutes": 35,
+    "timestamp": "2024-03-05T15:20:00Z"
+  },
+  {
+    "id": "INC-1014",
+    "service": "api-gateway",
+    "symptoms": "503 Service Unavailable returned across all public endpoints.",
+    "error_log": "[error] 7#7: *1081123 no live upstreams while connecting to upstream, client: 192.168.1.1, server: _, request: 'GET /health HTTP/1.1'",
+    "metrics": "Gateway HTTP 503 count: 25000/min, upstream healthy hosts: 0/12.",
+    "root_cause": "Consul service discovery DNS health check probe interval misconfigured, marking all healthy pods down.",
+    "fix": "Corrected Consul health check HTTP path and relaxed failure threshold.",
+    "time_to_resolve_minutes": 20,
+    "timestamp": "2024-03-08T11:50:00Z"
+  },
+  {
+    "id": "INC-1015",
+    "service": "realtime-chat",
+    "symptoms": "WebSocket disconnects across active sessions; memory usage climbing linearly.",
+    "error_log": "FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory",
+    "metrics": "Node.js process heap memory: 1.4GB / 1.4GB, active WebSocket connections dropped: 12,000.",
+    "root_cause": "Memory leak in WebSocket event listener cleanup on client disconnect.",
+    "fix": "Unsubscribed socket event listeners upon socket disconnect event and added garbage collection monitoring.",
+    "time_to_resolve_minutes": 40,
+    "timestamp": "2024-03-12T17:30:00Z"
+  }
+]

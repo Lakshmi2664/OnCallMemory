@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OnCallMemory — Incident Response Agent with Persistent Hindsight Memory</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+  <style>
+    :root {
+      --bg-dark: #0f172a;
+      --card-bg: #1e293b;
+      --accent-color: #38bdf8;
+      --accent-green: #34d399;
+      --accent-purple: #c084fc;
+      --border-color: #334155;
+      --text-muted: #cbd5e1;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: #f8fafc;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+
+    .navbar {
+      background-color: #0b1120;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      color: #f8fafc;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+    }
+
+    .card-header {
+      background-color: rgba(15, 23, 42, 0.8);
+      border-bottom: 1px solid var(--border-color);
+      font-weight: 600;
+      color: #f8fafc;
+    }
+
+    label {
+      color: #e2e8f0 !important;
+      font-weight: 500;
+    }
+
+    textarea, input, select {
+      background-color: #0f172a !important;
+      border: 1px solid var(--border-color) !important;
+      color: #f8fafc !important;
+    }
+
+    textarea::placeholder, input::placeholder {
+      color: #64748b !important;
+    }
+
+    textarea:focus, input:focus, select:focus {
+      border-color: var(--accent-color) !important;
+      box-shadow: 0 0 0 0.25rem rgba(56, 189, 248, 0.25) !important;
+    }
+
+    .badge-memory-on {
+      background-color: rgba(52, 211, 153, 0.2);
+      color: var(--accent-green);
+      border: 1px solid var(--accent-green);
+    }
+
+    .badge-memory-off {
+      background-color: rgba(248, 113, 113, 0.2);
+      color: #f87171;
+      border: 1px solid #f87171;
+    }
+
+    .memory-item {
+      background-color: rgba(15, 23, 42, 0.7);
+      border-left: 4px solid var(--accent-purple);
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .step-item {
+      background-color: rgba(15, 23, 42, 0.5);
+      border-left: 3px solid var(--accent-color);
+      padding: 8px 12px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.95rem;
+    }
+
+    .spinner-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 42, 0.85);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 12px;
+      z-index: 10;
+    }
+
+    .btn-primary {
+      background-color: #2563eb;
+      border-color: #2563eb;
+    }
+
+    .btn-primary:hover {
+      background-color: #1d4ed8;
+    }
+
+    .nav-tabs {
+      border-bottom-color: var(--border-color);
+    }
+
+    .nav-tabs .nav-link {
+      color: #94a3b8;
+      border: none;
+    }
+
+    .nav-tabs .nav-link.active {
+      color: var(--accent-color);
+      background-color: transparent;
+      border-bottom: 2px solid var(--accent-color);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Navbar -->
+  <nav class="navbar navbar-expand-lg py-3">
+    <div class="container-fluid px-4">
+      <a class="navbar-brand d-flex align-items-center text-white fw-bold" href="#">
+        <i class="bi bi-cpu-fill text-info me-2 fs-4"></i>
+        <span>OnCallMemory <span class="badge bg-info-subtle text-info fs-6 ms-2">Hindsight AI</span></span>
+      </a>
+      <div class="d-flex align-items-center gap-3">
+        <button id="seedBtn" class="btn btn-outline-info btn-sm">
+          <i class="bi bi-database-fill-add me-1"></i> Seed Memory Bank
+        </button>
+        <span id="seedBadge" class="badge bg-secondary">Unseeded</span>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container-fluid px-4 py-4">
+    <!-- Main Tabs -->
+    <ul class="nav nav-tabs mb-4" id="mainTabs" role="tablist">
+      <li class="nav-item">
+        <button class="nav-link active fw-semibold" id="diagnosis-tab" data-bs-toggle="tab" data-bs-target="#diagnosis-pane" type="button">
+          <i class="bi bi-lightning-charge-fill me-1"></i> Live Incident Diagnosis
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link fw-semibold" id="compare-tab" data-bs-toggle="tab" data-bs-target="#compare-pane" type="button">
+          <i class="bi bi-columns-gap me-1"></i> Side-by-Side Comparison (OFF vs ON)
+        </button>
+      </li>
+      <li class="nav-item">
+        <button class="nav-link fw-semibold" id="patterns-tab" data-bs-toggle="tab" data-bs-target="#patterns-pane" type="button" onclick="loadPatterns()">
+          <i class="bi bi-diagram-3-fill me-1"></i> Recurring Incident Patterns
+        </button>
+      </li>
+    </ul>
+
+    <div class="tab-content" id="mainTabContent">
+
+      <!-- TAB 1: Live Incident Diagnosis -->
+      <div class="tab-pane fade show active" id="diagnosis-pane" role="tabpanel">
+        <div class="row g-4">
+          <!-- Left Input Column -->
+          <div class="col-lg-6">
+            <div class="card h-100">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-exclamation-triangle-fill text-warning me-2"></i> Incoming Incident Alert</span>
+                <div class="form-check form-switch mb-0">
+                  <input class="form-check-input" type="checkbox" id="memoryToggle" checked>
+                  <label class="form-check-label fw-bold ms-1 text-light" for="memoryToggle" id="memoryToggleLabel">
+                    Memory ON
+                  </label>
+                </div>
+              </div>
+              <div class="card-body d-flex flex-column">
+                <div class="mb-3">
+                  <label class="form-label mb-1">Sample Incident Presets:</label>
+                  <select id="presetSelect" class="form-select form-select-sm" onchange="loadPresetAlert(this.value)">
+                    <option value="">-- Select a preset alert --</option>
+                    <option value="hikari">Database Connection Pool Failure (HikariCP / auth-service)</option>
+                    <option value="oom">Kubernetes Pod Memory Exhaustion (OOMKilled / user-profile)</option>
+                    <option value="nat">AWS NAT Gateway Port Exhaustion (Stripe Webhooks / payment-gateway)</option>
+                    <option value="redis">Redis Out of Memory & Connection Refused (notification-service)</option>
+                  </select>
+                </div>
+
+                <div class="mb-3 flex-grow-1">
+                  <label for="alertInput" class="form-label mb-1">Alert Payload / Stack Trace / Error Logs:</label>
+                  <textarea id="alertInput" class="form-area form-control font-monospace text-light" rows="10" placeholder="Paste system error log, metric spike, or alert details here..."></textarea>
+                </div>
+
+                <button id="diagnoseBtn" class="btn btn-primary w-100 py-2 fw-semibold" onclick="runDiagnosis()">
+                  <i class="bi bi-search me-1"></i> Diagnose Incident
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right Output Column -->
+          <div class="col-lg-6">
+            <div class="card h-100 position-relative" id="responseCard">
+              <div id="loadingOverlay" class="spinner-overlay d-none">
+                <div class="text-center">
+                  <div class="spinner-border text-info" role="status" style="width: 3rem; height: 3rem;"></div>
+                  <p class="mt-3 text-light fw-semibold">Consulting Hindsight Memory & Diagnosing LLM...</p>
+                </div>
+              </div>
+
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-robot me-2 text-info"></i> AI Agent Diagnosis & Remediation</span>
+                <span id="memoryStatusBadge" class="badge badge-memory-on">Memory Enabled</span>
+              </div>
+
+              <div class="card-body overflow-auto" style="max-height: 650px;">
+                <div id="emptyState" class="text-center my-5" style="color: #cbd5e1;">
+                  <i class="bi bi-shield-check display-1 opacity-50 text-info"></i>
+                  <p class="mt-3 fs-5">Enter an alert or select a preset and click <strong>Diagnose Incident</strong>.</p>
+                </div>
+
+                <div id="resultContent" class="d-none">
+                  <!-- Diagnosis Section -->
+                  <div class="mb-4">
+                    <h6 class="text-info fw-bold mb-2"><i class="bi bi-activity me-1"></i> Root Cause Diagnosis</h6>
+                    <p id="diagnosisText" class="text-light lead fs-6 p-3 rounded" style="background-color: rgba(15, 23, 42, 0.6); border-left: 4px solid var(--accent-color);"></p>
+                  </div>
+
+                  <!-- Suggested Steps -->
+                  <div class="mb-4">
+                    <h6 class="text-info fw-bold mb-2"><i class="bi bi-list-check me-1"></i> Suggested Remediation Steps</h6>
+                    <div id="suggestedStepsList"></div>
+                  </div>
+
+                  <!-- Recalled Memories Panel -->
+                  <div class="mb-4">
+                    <h6 class="text-purple fw-bold mb-2" style="color: var(--accent-purple);">
+                      <i class="bi bi-journal-bookmark-fill me-1"></i> Recalled Past Incidents from Hindsight (<span id="recalledCount">0</span>)
+                    </h6>
+                    <div id="recalledMemoriesList"></div>
+                  </div>
+
+                  <!-- Feedback Section -->
+                  <div class="card mt-4 border-secondary">
+                    <div class="card-body bg-dark-subtle rounded">
+                      <h6 class="fw-bold mb-2"><i class="bi bi-hand-thumbs-up me-1"></i> Resolution Feedback Loop</h6>
+                      <p class="small text-light mb-3">Did these remediation steps resolve the issue? Log feedback to update Hindsight's future recall priority.</p>
+                      <div class="row g-2">
+                        <div class="col-md-6">
+                          <input type="text" id="feedbackIncId" class="form-control form-control-sm" placeholder="Incident ID (e.g. INC-1001)">
+                        </div>
+                        <div class="col-md-6">
+                          <input type="text" id="feedbackSuggestion" class="form-control form-control-sm" placeholder="Step / Suggestion attempted">
+                        </div>
+                        <div class="col-12">
+                          <textarea id="feedbackNotes" class="form-control form-control-sm" rows="2" placeholder="Notes or details on the outcome..."></textarea>
+                        </div>
+                        <div class="col-12 d-flex gap-2 justify-content-end mt-2">
+                          <button class="btn btn-sm btn-success px-3" onclick="submitFeedback(true)">
+                            <i class="bi bi-check-circle me-1"></i> Worked
+                          </button>
+                          <button class="btn btn-sm btn-outline-danger px-3" onclick="submitFeedback(false)">
+                            <i class="bi bi-x-circle me-1"></i> Didn't Work
+                          </button>
+                        </div>
+                      </div>
+                      <div id="feedbackAlert" class="mt-2 text-success small d-none"></div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 2: Side-by-Side Comparison -->
+      <div class="tab-pane fade" id="compare-pane" role="tabpanel">
+        <div class="card mb-3">
+          <div class="card-body d-flex gap-3 align-items-center">
+            <input type="text" id="compareInput" class="form-control font-monospace" placeholder="Paste alert text for side-by-side comparison (e.g., HikariCP remaining connection slots reserved)..." value="org.postgresql.util.PSQLException: FATAL: remaining connection slots are reserved for non-replication superuser connections at com.zaxxer.hikari.pool.HikariPool.checkInUseConnections">
+            <button class="btn btn-info text-nowrap px-4 fw-semibold" onclick="runCompare()">
+              <i class="bi bi-columns me-1"></i> Run Comparison
+            </button>
+          </div>
+        </div>
+
+        <div class="row g-4">
+          <!-- Memory OFF Column -->
+          <div class="col-md-6">
+            <div class="card h-100 border-danger">
+              <div class="card-header bg-danger-subtle text-danger fw-bold d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-toggle-off me-2"></i> Memory OFF (Standard LLM Only)</span>
+                <span class="badge bg-danger">No Context</span>
+              </div>
+              <div class="card-body" id="compareOffBody">
+                <p class="text-light opacity-75 text-center my-5">Run comparison to view standard LLM output without Hindsight memory.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Memory ON Column -->
+          <div class="col-md-6">
+            <div class="card h-100 border-success">
+              <div class="card-header bg-success-subtle text-success fw-bold d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-toggle-on me-2"></i> Memory ON (With Hindsight Recall)</span>
+                <span class="badge bg-success">Hindsight Context</span>
+              </div>
+              <div class="card-body" id="compareOnBody">
+                <p class="text-light opacity-75 text-center my-5">Run comparison to view memory-augmented LLM output with past post-mortems.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: Recurring Patterns -->
+      <div class="tab-pane fade" id="patterns-pane" role="tabpanel">
+        <div class="card">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-diagram-3 me-2 text-info"></i> Hindsight Reflect Analysis across Memory Bank</span>
+            <button class="btn btn-sm btn-outline-info" onclick="loadPatterns()">
+              <i class="bi bi-arrow-clockwise me-1"></i> Refresh Reflection
+            </button>
+          </div>
+          <div class="card-body">
+            <p class="text-light opacity-75 small mb-3">
+              Calling <code>client.reflect("what patterns keep recurring across our incidents?")</code> synthesizes mental models and systemic failure modes from retained incident post-mortems.
+            </p>
+            <div id="patternsContent" class="p-4 rounded font-monospace text-light" style="background-color: #0b1120; white-space: pre-wrap; line-height: 1.6; border: 1px solid var(--border-color);">
+              Click 'Refresh Reflection' or open this tab to fetch recurring incident patterns...
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    const PRESETS = {
+      hikari: "org.postgresql.util.PSQLException: FATAL: remaining connection slots are reserved for non-replication superuser connections\n  at com.zaxxer.hikari.pool.HikariPool.checkInUseConnections(HikariPool.java:412)\n  Service: auth-service | Active connections: 50/50 | Connection wait queue: 142 clients.",
+      oom: "java.lang.OutOfMemoryError: Java heap space\n  at com.acme.user.service.UserProfileService.exportAllUsers(UserProfileService.java:184)\n  Service: user-profile-api | Pod RSS: 2.1GB (Limit: 2.0GB) | Container restart count: 18",
+      nat: "requests.exceptions.ConnectTimeout: HTTPSConnectionPool(host='api.stripe.com', port=443): Max retries exceeded with url: /v1/charges\n  Service: payment-gateway | Outbound egress packet drop rate: 12% | TCP retransmission rate: 18%",
+      redis: "redis.exceptions.ConnectionError: Error 111 connecting to 10.0.12.45:6379. Connection refused.\n  Service: notification-service | Redis memory usage: 100% (4.0GB maxmemory hit) | maxmemory-policy: noeviction"
+    };
+
+    document.getElementById('memoryToggle').addEventListener('change', function(e) {
+      const isChecked = e.target.checked;
+      const label = document.getElementById('memoryToggleLabel');
+      const badge = document.getElementById('memoryStatusBadge');
+      if (isChecked) {
+        label.textContent = "Memory ON";
+        badge.textContent = "Memory Enabled";
+        badge.className = "badge badge-memory-on";
+      } else {
+        label.textContent = "Memory OFF";
+        badge.textContent = "Memory Disabled";
+        badge.className = "badge badge-memory-off";
+      }
+    });
+
+    document.getElementById('seedBtn').addEventListener('click', async () => {
+      const seedBtn = document.getElementById('seedBtn');
+      const badge = document.getElementById('seedBadge');
+      seedBtn.disabled = true;
+      seedBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Seeding...`;
+      try {
+        const res = await fetch('/seed', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok) {
+          badge.textContent = `${data.count} Incidents Seeded`;
+          badge.className = "badge bg-success";
+          alert(data.message);
+        } else {
+          alert('Seeding failed: ' + data.detail);
+        }
+      } catch (err) {
+        alert('Seeding request failed: ' + err);
+      } finally {
+        seedBtn.disabled = false;
+        seedBtn.innerHTML = `<i class="bi bi-database-fill-add me-1"></i> Seed Memory Bank`;
+      }
+    });
+
+    function loadPresetAlert(key) {
+      if (PRESETS[key]) {
+        document.getElementById('alertInput').value = PRESETS[key];
+      }
+    }
+
+    async function runDiagnosis() {
+      const alertText = document.getElementById('alertInput').value.trim();
+      const memoryOn = document.getElementById('memoryToggle').checked;
+
+      if (!alertText) {
+        alert("Please enter alert details or select a preset.");
+        return;
+      }
+
+      document.getElementById('loadingOverlay').classList.remove('d-none');
+      document.getElementById('emptyState').classList.add('d-none');
+      document.getElementById('resultContent').classList.add('d-none');
+
+      try {
+        const res = await fetch('/incident', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alert_text: alertText, memory: memoryOn })
+        });
+        const data = await res.json();
+
+        // Render Diagnosis
+        document.getElementById('diagnosisText').textContent = data.diagnosis || "No diagnosis provided.";
+
+        // Render Steps
+        const stepsContainer = document.getElementById('suggestedStepsList');
+        stepsContainer.innerHTML = '';
+        if (data.suggested_steps && data.suggested_steps.length > 0) {
+          data.suggested_steps.forEach((step, idx) => {
+            const div = document.createElement('div');
+            div.className = 'step-item';
+            div.innerHTML = `<span class="text-info fw-bold me-2">${idx + 1}.</span> ${escapeHtml(step)}`;
+            stepsContainer.appendChild(div);
+          });
+        } else {
+          stepsContainer.innerHTML = `<p class="text-muted small">No specific steps provided.</p>`;
+        }
+
+        // Render Memories
+        const memoriesContainer = document.getElementById('recalledMemoriesList');
+        memoriesContainer.innerHTML = '';
+        const memories = data.recalled_memories || [];
+        document.getElementById('recalledCount').textContent = memories.length;
+
+        if (memories.length > 0) {
+          memories.forEach((mem) => {
+            const div = document.createElement('div');
+            div.className = 'memory-item';
+            const content = mem.content || mem.fact || str(mem);
+            const context = mem.context || 'General Memory';
+            div.innerHTML = `
+              <div class="fw-bold text-info small mb-1"><i class="bi bi-tag-fill me-1"></i> ${escapeHtml(context)}</div>
+              <div class="small text-light">${escapeHtml(content)}</div>
+            `;
+            memoriesContainer.appendChild(div);
+          });
+        } else {
+          memoriesContainer.innerHTML = `<div class="p-3 text-muted small border border-secondary rounded">No past memories recalled (${memoryOn ? 'No close match found' : 'Memory was turned OFF'}).</div>`;
+        }
+
+        document.getElementById('resultContent').classList.remove('d-none');
+      } catch (err) {
+        alert("Diagnosis request failed: " + err);
+      } finally {
+        document.getElementById('loadingOverlay').classList.add('d-none');
+      }
+    }
+
+    async function submitFeedback(worked) {
+      const incId = document.getElementById('feedbackIncId').value.trim() || 'INC-LIVE';
+      const suggestion = document.getElementById('feedbackSuggestion').value.trim() || 'Executed suggested steps';
+      const notes = document.getElementById('feedbackNotes').value.trim();
+      const alertDiv = document.getElementById('feedbackAlert');
+
+      try {
+        const res = await fetch('/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ incident_id: incId, suggestion: suggestion, worked: worked, notes: notes })
+        });
+        const data = await res.json();
+        alertDiv.textContent = data.message;
+        alertDiv.classList.remove('d-none');
+        setTimeout(() => alertDiv.classList.add('d-none'), 4000);
+      } catch (err) {
+        alert('Failed to submit feedback: ' + err);
+      }
+    }
+
+    async function runCompare() {
+      const text = document.getElementById('compareInput').value.trim();
+      if (!text) return;
+
+      const offBody = document.getElementById('compareOffBody');
+      const onBody = document.getElementById('compareOnBody');
+
+      offBody.innerHTML = `<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-danger"></span> Generating...</div>`;
+      onBody.innerHTML = `<div class="text-center py-4"><span class="spinner-border spinner-border-sm text-success"></span> Querying Hindsight & LLM...</div>`;
+
+      try {
+        const [resOff, resOn] = await Promise.all([
+          fetch('/incident', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alert_text: text, memory: false })
+          }).then(r => r.json()),
+          fetch('/incident', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alert_text: text, memory: true })
+          }).then(r => r.json())
+        ]);
+
+        offBody.innerHTML = renderResultHtml(resOff, false);
+        onBody.innerHTML = renderResultHtml(resOn, true);
+      } catch (err) {
+        offBody.innerHTML = `<div class="text-danger p-3">Error fetching result</div>`;
+        onBody.innerHTML = `<div class="text-danger p-3">Error fetching result</div>`;
+      }
+    }
+
+    function renderResultHtml(data, isMemoryOn) {
+      const stepsHtml = (data.suggested_steps || []).map((s, idx) => `<div class="step-item mb-1"><span class="text-info">${idx+1}.</span> ${escapeHtml(s)}</div>`).join('');
+      const memoriesHtml = (data.recalled_memories || []).map(m => `<div class="memory-item py-1 px-2 mb-2 small"><strong>${escapeHtml(m.context || '')}</strong>: ${escapeHtml(m.content || '')}</div>`).join('');
+
+      return `
+        <div class="mb-3">
+          <strong class="text-info small">Diagnosis:</strong>
+          <p class="small text-light mt-1">${escapeHtml(data.diagnosis || '')}</p>
+        </div>
+        <div class="mb-3">
+          <strong class="text-info small">Suggested Steps:</strong>
+          <div class="mt-1">${stepsHtml || '<span class="text-muted small">None</span>'}</div>
+        </div>
+        <div>
+          <strong class="text-purple small" style="color: var(--accent-purple);">Recalled Memories (${(data.recalled_memories || []).length}):</strong>
+          <div class="mt-1">${memoriesHtml || '<span class="text-muted small">No memories recalled</span>'}</div>
+        </div>
+      `;
+    }
+
+    async function loadPatterns() {
+      const container = document.getElementById('patternsContent');
+      container.textContent = "Reflecting across all retained incident post-mortems...";
+      try {
+        const res = await fetch('/patterns');
+        const data = await res.json();
+        container.textContent = data.patterns_summary || "No patterns available.";
+      } catch (err) {
+        container.textContent = "Error loading patterns: " + err;
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+  </script>
+</body>
+</html>
