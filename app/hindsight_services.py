@@ -15,7 +15,7 @@ def _run_in_new_loop(method_name: str, base_url: str, api_key: str, bank_id: str
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        client = Hindsight(base_url=base_url, api_key=api_key)
+        client = Hindsight(base_url=base_url, api_key=api_key, timeout=60.0)
         method = getattr(client, method_name)
         return method(bank_id, *args, **kwargs)
     finally:
@@ -24,7 +24,7 @@ def _run_in_new_loop(method_name: str, base_url: str, api_key: str, bank_id: str
 class HindsightService:
     def __init__(self, base_url: str = HINDSIGHT_BASE_URL, api_key: str = HINDSIGHT_API_KEY, bank_id: str = HINDSIGHT_BANK_ID):
         self.base_url = base_url
-        self.api_key = api_key or "default-key"
+        self.api_key = api_key 
         self.bank_id = bank_id
 
     def _safe_run(self, method_name: str, *args, **kwargs):
@@ -32,7 +32,7 @@ class HindsightService:
         future = executor.submit(
             _run_in_new_loop, method_name, self.base_url, self.api_key, self.bank_id, *args, **kwargs
         )
-        return future.result(timeout=10)
+        return future.result(timeout=90)
 
     def retain_incident(self, incident: Dict[str, Any]) -> bool:
         """
@@ -74,7 +74,8 @@ class HindsightService:
                 "retain",
                 content=content,
                 context=context,
-                timestamp=timestamp
+                timestamp=timestamp,
+                retain_async=True,
             )
             return True
         except Exception as e:
@@ -85,6 +86,7 @@ class HindsightService:
         """
         Retain feedback outcome in Hindsight so future suggestions favor fixes that worked.
         """
+        
         try:
             status = "SUCCESSFUL / WORKED" if worked else "FAILED / DID NOT WORK"
             content = (
@@ -100,7 +102,8 @@ class HindsightService:
                 "retain",
                 content=content,
                 context=context,
-                timestamp=datetime.utcnow()
+                timestamp=datetime.utcnow(),
+                retain_async=True,
             )
             return True
         except Exception as e:
