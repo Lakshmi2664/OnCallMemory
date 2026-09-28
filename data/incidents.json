@@ -1,0 +1,242 @@
+[
+  {
+    "id": "INC-1001",
+    "service": "checkout-service",
+    "timestamp": "2024-01-10T14:32:00Z",
+    "symptoms": "HTTP 500 Spike on Checkout API during flash sale. Customers unable to complete orders.",
+    "error_log": "sqlalchemy.exc.TimeoutError: QueuePool limit of size 20 overflow 10 reached, connection timed out, timeout 30.00 (Background: psycopg2.OperationalError: FATAL: remaining connection slots are reserved for non-replication superuser connections)",
+    "metrics": {
+      "error_rate": "18.5%",
+      "p99_latency_ms": 12400,
+      "db_connections_active": 100,
+      "cpu_utilization": "42%"
+    },
+    "root_cause": "PostgreSQL database connection pool exhaustion caused by missing query connection timeout and unindexed user_orders lookup query during peak load.",
+    "fix": "Increased DB pool size temporarily, added statement_timeout=5000ms to SQLAlchemy database engine settings, and created composite index idx_user_orders_user_id_created_at.",
+    "time_to_resolve_mins": 35
+  },
+  {
+    "id": "INC-1002",
+    "service": "user-profile-service",
+    "timestamp": "2024-01-18T09:15:00Z",
+    "symptoms": "Intermittent HTTP 504 Gateway Timeout on user profile page loads and setting updates.",
+    "error_log": "psycopg2.OperationalError: FATAL: sorry, too many clients already. Connection pool exhausted at max_connections=200.",
+    "metrics": {
+      "error_rate": "8.2%",
+      "p99_latency_ms": 8500,
+      "db_connections_active": 200,
+      "cpu_utilization": "35%"
+    },
+    "root_cause": "PostgreSQL database connection pool exhaustion due to dangling connections from long-running analytics queries sharing the primary application DB pool without statement timeouts.",
+    "fix": "Routed read-only analytics traffic to replica DB, configured pool recycling, and added statement_timeout=3000ms to user-profile-service DB config.",
+    "time_to_resolve_mins": 42
+  },
+  {
+    "id": "INC-1003",
+    "service": "billing-service",
+    "timestamp": "2024-02-01T11:05:00Z",
+    "symptoms": "Payment processing delayed and webhook processing failing with connection timed out errors.",
+    "error_log": "asyncpg.exceptions.TooManyConnectionsError: sorry, too many clients already. Connection limit reached for user 'billing_app'.",
+    "metrics": {
+      "error_rate": "12.1%",
+      "p99_latency_ms": 15000,
+      "db_connections_active": 150,
+      "cpu_utilization": "28%"
+    },
+    "root_cause": "PostgreSQL database connection pool exhaustion triggered by retry loops on third-party payment gateway timeouts keeping DB connections open indefinitely.",
+    "fix": "Configured PgBouncer transaction pooling mode, set max_client_conn to 1000, and capped billing service connection pool with strict socket timeouts.",
+    "time_to_resolve_mins": 50
+  },
+  {
+    "id": "INC-1004",
+    "service": "auth-service",
+    "timestamp": "2024-02-12T16:40:00Z",
+    "symptoms": "Users logged out unexpectedly; login endpoint returning HTTP 500 for 15% of auth attempts.",
+    "error_log": "redis.exceptions.ConnectionError: Error 111 connecting to 10.0.4.12:6379. Connection refused. Redis memory usage hit maxmemory ceiling 8GB.",
+    "metrics": {
+      "error_rate": "15.0%",
+      "p99_latency_ms": 4200,
+      "redis_memory_used_gb": 8.0,
+      "cpu_utilization": "88%"
+    },
+    "root_cause": "Redis session store OOM crash due to session token TTL eviction policy misconfiguration (noeviction instead of volatile-lru).",
+    "fix": "Changed Redis maxmemory-policy to volatile-lru, flushed expired session keys, and scaled Redis cluster nodes.",
+    "time_to_resolve_mins": 25
+  },
+  {
+    "id": "INC-1005",
+    "service": "notification-service",
+    "timestamp": "2024-02-20T08:30:00Z",
+    "symptoms": "Push notifications and emails delayed by over 45 minutes. Kafka consumer lag growing rapidly.",
+    "error_log": "org.apache.kafka.clients.consumer.CommitFailedException: Commit cannot be completed since the group has already rebalanced and assigned the partitions to another member.",
+    "metrics": {
+      "kafka_consumer_lag": 450000,
+      "error_rate": "0.5%",
+      "p99_latency_ms": 280000,
+      "cpu_utilization": "95%"
+    },
+    "root_cause": "Kafka consumer group rebalance storm caused by long-running email rendering batch operations blocking the heartbeats beyond max.poll.interval.ms.",
+    "fix": "Decoupled email rendering into background worker threads, increased max.poll.interval.ms from 300,000ms to 600,000ms, and scaled consumer pods.",
+    "time_to_resolve_mins": 60
+  },
+  {
+    "id": "INC-1006",
+    "service": "search-indexing-service",
+    "timestamp": "2024-03-02T13:12:00Z",
+    "symptoms": "New products not appearing in search results. Search cluster health status degraded to RED.",
+    "error_log": "elasticsearch.exceptions.TransportError: 429 Too Many Requests: [es-node-03] circuit_breaking_exception: [parent] Data too large, data for [<http_request>] would be [10485760000/9.7gb], which is larger than the parent limit of [10200547328/9.5gb]",
+    "metrics": {
+      "es_jvm_heap_utilization": "98%",
+      "cluster_health": "RED",
+      "indexing_rate_per_sec": 12,
+      "cpu_utilization": "92%"
+    },
+    "root_cause": "Elasticsearch JVM Heap Out-Of-Memory due to unoptimized aggregation queries on un-mapped keyword fields coupled with a sudden bulk re-index operation.",
+    "fix": "Increased Elasticsearch JVM heap size from 16GB to 32GB, enabled fielddata cache limits, and rate-limited bulk indexing requests.",
+    "time_to_resolve_mins": 55
+  },
+  {
+    "id": "INC-1007",
+    "service": "inventory-service",
+    "timestamp": "2024-03-14T20:05:00Z",
+    "symptoms": "Inventory stock updates failing; order creation failing with concurrent update errors.",
+    "error_log": "net.spy.memcached.OperationTimeoutException: Timeout waiting for value: waited 2500 ms. Lock wait timeout exceeded; try restarting transaction.",
+    "metrics": {
+      "error_rate": "9.8%",
+      "p99_latency_ms": 6100,
+      "db_deadlocks_count": 342,
+      "cpu_utilization": "64%"
+    },
+    "root_cause": "Database deadlocks caused by inconsistent row locking order when reserving multiple inventory items across concurrent shopping carts.",
+    "fix": "Enforced deterministic sorting by product_id prior to acquiring database row locks in inventory reservation transactions.",
+    "time_to_resolve_mins": 30
+  },
+  {
+    "id": "INC-1008",
+    "service": "media-upload-service",
+    "timestamp": "2024-03-22T17:45:00Z",
+    "symptoms": "Image and video uploads failing with HTTP 502 Bad Gateway across web and mobile applications.",
+    "error_log": "nginx: [error] 28#28: *11452 recv() failed (104: Connection reset by peer) while reading response header from upstream, client: 172.16.0.4, server: media.acme.com, request: POST /upload HTTP/1.1, upstream: http://10.0.12.44:8080/upload",
+    "metrics": {
+      "error_rate": "24.1%",
+      "p99_latency_ms": 30000,
+      "pod_restarts": 48,
+      "memory_utilization": "100%"
+    },
+    "root_cause": "Kubernetes OOMKilled pods caused by loading full high-resolution image byte arrays directly into Node.js heap memory during image resizing without streaming.",
+    "fix": "Replaced in-memory image buffer processing with stream-based processing using Sharp / libvips and increased pod memory limits from 512Mi to 2Gi.",
+    "time_to_resolve_mins": 20
+  },
+  {
+    "id": "INC-1009",
+    "service": "api-gateway",
+    "timestamp": "2024-04-05T10:10:00Z",
+    "symptoms": "API Gateway returning HTTP 429 Too Many Requests for legitimate, authenticated corporate tier clients.",
+    "error_log": "rate_limiter.go:128: rate limit exceeded for tenant_id=acme-corp-prod. Bucket capacity 1000 tokens depleted.",
+    "metrics": {
+      "error_rate": "5.4%",
+      "p99_latency_ms": 120,
+      "throttled_requests_per_sec": 450,
+      "cpu_utilization": "18%"
+    },
+    "root_cause": "Rate limiting redis key hash collision causing enterprise account rate limits to share bucket allocations with lower tier accounts.",
+    "fix": "Updated rate limit cache key formatting to `ratelimit:{tenant_id}:{api_key_hash}` and flushed corrupted rate limit state keys.",
+    "time_to_resolve_mins": 15
+  },
+  {
+    "id": "INC-1010",
+    "service": "recommendation-service",
+    "timestamp": "2024-04-19T15:20:00Z",
+    "symptoms": "Product recommendation widget failing on homepage; returning HTTP 503 Service Unavailable.",
+    "error_log": "grpc._channel._InactiveRpcError: <_InactiveRpcError of RPC that terminated with: status = UNAVAILABLE, details = Socket closed / DNS resolution failed for ML model inference endpoint ml-inference.internal:50051>",
+    "metrics": {
+      "error_rate": "100%",
+      "p99_latency_ms": 5000,
+      "dns_lookup_failures": 1250,
+      "cpu_utilization": "12%"
+    },
+    "root_cause": "CoreDNS cache poisoning and pod crash loop inside Kubernetes cluster following a network policy update.",
+    "fix": "Restarted CoreDNS deployment, corrected CoreDNS configmap upstream resolver configuration, and established DNS caching sidecar.",
+    "time_to_resolve_mins": 35
+  },
+  {
+    "id": "INC-1011",
+    "service": "analytics-ingestion-service",
+    "timestamp": "2024-05-01T04:00:00Z",
+    "symptoms": "Real-time metrics dashboard frozen. Event stream data failing to persist in ClickHouse.",
+    "error_log": "Code: 241. CLICKHOUSE_EXCEPTION: Memory limit (for query) exceeded: would use 12.40 GiB, maximum: 10.00 GiB.",
+    "metrics": {
+      "error_rate": "100%",
+      "p99_latency_ms": 45000,
+      "unprocessed_events_queue": 2500000,
+      "cpu_utilization": "99%"
+    },
+    "root_cause": "ClickHouse query memory limit exceeded during automatic nightly partition consolidation on unpartitioned event logs table.",
+    "fix": "Partitioned event log table by `toYYYYMM(event_timestamp)`, increased max_memory_usage per query, and restarted ClickHouse server node.",
+    "time_to_resolve_mins": 40
+  },
+  {
+    "id": "INC-1012",
+    "service": "shipping-calculator-service",
+    "timestamp": "2024-05-15T18:30:00Z",
+    "symptoms": "Checkout shipping rates calculation failing or timing out for international addresses.",
+    "error_log": "httpx.ConnectTimeout: HTTP Connection pool timeout after 10.0s attempting to reach https://api.fedex-partner.com/v1/rates",
+    "metrics": {
+      "error_rate": "14.2%",
+      "p99_latency_ms": 10200,
+      "carrier_api_timeouts": 890,
+      "cpu_utilization": "22%"
+    },
+    "root_cause": "Partner shipping provider API outage combined with missing circuit breaker policy causing cascading thread pool exhaustion in shipping service.",
+    "fix": "Implemented Resilience4j circuit breaker with fallback estimated shipping rates when partner API response time exceeds 1500ms.",
+    "time_to_resolve_mins": 25
+  },
+  {
+    "id": "INC-1013",
+    "service": "customer-support-portal",
+    "timestamp": "2024-06-01T11:45:00Z",
+    "symptoms": "Support agents unable to view customer order history; search requests timing out.",
+    "error_log": "ElasticsearchException[Elasticsearch status [503]]; nested: OpenTransportException[connect_timeout after 3000ms];",
+    "metrics": {
+      "error_rate": "32.0%",
+      "p99_latency_ms": 12000,
+      "active_support_agents_affected": 240,
+      "cpu_utilization": "45%"
+    },
+    "root_cause": "Unindexed ElasticSearch wildcard query `*query*` executed across all historical logs indices without time filter.",
+    "fix": "Restricted ElasticSearch search queries to recent 30 days index wildcard and enforced mandatory filters on customer_id field.",
+    "time_to_resolve_mins": 20
+  },
+  {
+    "id": "INC-1014",
+    "service": "identity-provider-service",
+    "timestamp": "2024-06-10T14:10:00Z",
+    "symptoms": "Single Sign-On (SSO) authentication failures across all internal employee tools.",
+    "error_log": "pySAML2.error.SignatureVerificationFailed: Signature verification failed: Certificate expired at 2024-06-10T14:00:00Z",
+    "metrics": {
+      "error_rate": "100%",
+      "p99_latency_ms": 150,
+      "failed_sso_attempts": 3200,
+      "cpu_utilization": "10%"
+    },
+    "root_cause": "SAML X.509 signing certificate expiration on IdP server due to un-triggered automated renewal alert.",
+    "fix": "Rotated SAML signing certificate, updated Service Provider metadata, and added automated TLS/X.509 cert expiration alert at 30 days prior.",
+    "time_to_resolve_mins": 18
+  },
+  {
+    "id": "INC-1015",
+    "service": "webhook-dispatcher",
+    "timestamp": "2024-06-25T09:00:00Z",
+    "symptoms": "Third-party developer webhooks dropping events; high delivery failure queue depth.",
+    "error_log": "requests.exceptions.SSLError: HTTPSConnectionPool(host='client.webhook.endpoint', port=443): Max retries exceeded with url: /receiver (Caused by SSLError(SSLCertVerificationError(1, '[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: certificate has expired')))",
+    "metrics": {
+      "error_rate": "11.5%",
+      "p99_latency_ms": 30000,
+      "dead_letter_queue_count": 12000,
+      "cpu_utilization": "55%"
+    },
+    "root_cause": "Webhook dispatcher worker blockage when attempting synchronous SSL verification against misconfigured client HTTPS endpoints without per-request timeouts.",
+    "fix": "Added 5s HTTP connect timeout, 10s read timeout, and offloaded failing client webhooks into exponential backoff dead-letter queue (DLQ).",
+    "time_to_resolve_mins": 28
+  }
+]

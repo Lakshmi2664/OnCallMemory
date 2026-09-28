@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OnCallMemory - Incident Response AI Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    code, pre { font-family: 'Fira Code', monospace; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col">
+
+  <!-- Navigation Bar -->
+  <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-50 shadow-md">
+    <div class="flex items-center gap-3">
+      <div class="bg-indigo-600 p-2 rounded-lg text-white font-bold text-xl">
+        <i class="fa-solid fa-brain"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold tracking-tight text-white">OnCallMemory</h1>
+        <p class="text-xs text-slate-400">Hindsight Persistent Memory SRE Copilot</p>
+      </div>
+    </div>
+
+    <!-- Quick Action Controls -->
+    <div class="flex items-center gap-3">
+      <button onclick="seedDatabase()" id="seedBtn" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-sm font-medium px-4 py-2 rounded-lg transition border border-slate-600 flex items-center gap-2">
+        <i class="fa-solid fa-database text-indigo-400"></i> Seed Hindsight Bank
+      </button>
+
+      <button onclick="fetchPatterns()" id="patternsBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition flex items-center gap-2 shadow-sm">
+        <i class="fa-solid fa-chart-line"></i> View Recurring Patterns
+      </button>
+
+      <!-- Compare Mode Toggle -->
+      <div class="flex items-center gap-2 bg-slate-700/60 p-1.5 rounded-lg border border-slate-600 ml-2">
+        <span class="text-xs font-semibold px-2 text-slate-300">Compare Mode (OFF vs ON)</span>
+        <label class="relative inline-flex items-center cursor-pointer">
+          <input type="checkbox" id="compareToggle" class="sr-only peer" onchange="toggleCompareMode()">
+          <div class="w-9 h-5 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+
+    <!-- Status Banner -->
+    <div id="statusBanner" class="hidden rounded-lg p-4 text-sm font-medium border"></div>
+
+    <!-- Alert Input Panel -->
+    <section class="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-lg">
+      <div class="flex items-center justify-between mb-3">
+        <label class="block text-sm font-semibold text-slate-200 flex items-center gap-2">
+          <i class="fa-solid fa-triangle-exclamation text-amber-400"></i> Paste Incoming Alert / Incident Log:
+        </label>
+
+        <!-- Memory Toggle (Standard Mode) -->
+        <div id="singleMemoryToggleContainer" class="flex items-center gap-3">
+          <span class="text-xs text-slate-400">Hindsight Memory:</span>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="memoryToggle" class="sr-only peer" checked>
+            <div class="w-11 h-6 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+            <span id="memoryToggleLabel" class="ml-2 text-xs font-semibold text-emerald-400">ENABLED</span>
+          </label>
+        </div>
+      </div>
+
+      <textarea id="alertText" rows="4" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm font-mono text-slate-200 focus:outline-none focus:border-indigo-500 transition resize-y" placeholder="e.g. sqlalchemy.exc.TimeoutError: QueuePool limit of size 20 overflow 10 reached, connection timed out on checkout-service..."></textarea>
+
+      <!-- Preset Alert Buttons -->
+      <div class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+        <span class="font-medium text-slate-500">Sample Alerts:</span>
+        <button onclick="loadSampleAlert(1)" class="bg-slate-700/80 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded border border-slate-600 transition">Checkout DB Pool Timeout</button>
+        <button onclick="loadSampleAlert(2)" class="bg-slate-700/80 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded border border-slate-600 transition">User Profile HTTP 504</button>
+        <button onclick="loadSampleAlert(3)" class="bg-slate-700/80 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded border border-slate-600 transition">Billing DB Connections</button>
+        <button onclick="loadSampleAlert(4)" class="bg-slate-700/80 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded border border-slate-600 transition">Auth Redis Memory OOM</button>
+      </div>
+
+      <div class="mt-4 flex justify-end">
+        <button onclick="submitIncident()" id="analyzeBtn" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-sm px-6 py-2.5 rounded-lg transition flex items-center gap-2 shadow-md">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Analyze & Diagnose Incident
+        </button>
+      </div>
+    </section>
+
+    <!-- Standard Single Mode Results View -->
+    <div id="singleResultsView" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- Diagnosis & Suggested Steps Panel (2 cols) -->
+      <div class="lg:col-span-2 space-y-6">
+        <div class="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-lg">
+          <h2 class="text-base font-semibold text-slate-200 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+            <i class="fa-solid fa-stethoscope text-indigo-400"></i> AI Diagnosis & Analysis
+          </h2>
+          <div id="diagnosisContent" class="text-sm text-slate-300 leading-relaxed min-h-[80px]">
+            <p class="text-slate-500 italic">Submit an alert above to generate diagnosis...</p>
+          </div>
+        </div>
+
+        <div class="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-lg">
+          <h2 class="text-base font-semibold text-slate-200 mb-3 flex items-center gap-2 border-b border-slate-700 pb-2">
+            <i class="fa-solid fa-list-check text-emerald-400"></i> Suggested Remediation Steps
+          </h2>
+          <div id="stepsContent" class="space-y-2 text-sm min-h-[80px]">
+            <p class="text-slate-500 italic">Suggested steps will appear here after analysis...</p>
+          </div>
+        </div>
+
+        <!-- Feedback Submission Box -->
+        <div id="feedbackBox" class="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-lg hidden">
+          <h3 class="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-comment-dots text-indigo-400"></i> Incident Outcome Feedback (Retain to Hindsight)
+          </h3>
+          <div class="space-y-3">
+            <input type="text" id="feedbackIncidentId" placeholder="Incident / Service Identifier (e.g. INC-1001)" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs font-mono text-slate-200 focus:outline-none focus:border-indigo-500">
+            <input type="text" id="feedbackSuggestion" placeholder="Applied fix / suggestion summary" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+            <textarea id="feedbackNotes" rows="2" placeholder="Optional notes on outcome..." class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 resize-none"></textarea>
+
+            <div class="flex items-center justify-between pt-1">
+              <div class="flex items-center gap-4">
+                <label class="inline-flex items-center gap-1.5 text-xs text-emerald-400 cursor-pointer">
+                  <input type="radio" name="feedbackWorked" value="true" checked class="text-emerald-500 focus:ring-emerald-500">
+                  <i class="fa-solid fa-circle-check"></i> Worked / Resolved
+                </label>
+                <label class="inline-flex items-center gap-1.5 text-xs text-rose-400 cursor-pointer">
+                  <input type="radio" name="feedbackWorked" value="false" class="text-rose-500 focus:ring-rose-500">
+                  <i class="fa-solid fa-circle-xmark"></i> Did Not Work
+                </label>
+              </div>
+
+              <button onclick="submitFeedback()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs px-4 py-2 rounded-lg transition flex items-center gap-1.5">
+                <i class="fa-solid fa-paper-plane"></i> Record Outcome in Hindsight
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Recalled Memories Side Panel (1 col) -->
+      <div class="lg:col-span-1">
+        <div class="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-lg h-full flex flex-col">
+          <div class="flex items-center justify-between border-b border-slate-700 pb-2 mb-3">
+            <h2 class="text-base font-semibold text-slate-200 flex items-center gap-2">
+              <i class="fa-solid fa-box-archive text-amber-400"></i> Recalled Past Incidents
+            </h2>
+            <span id="memoriesCount" class="bg-indigo-900/60 text-indigo-300 text-xs px-2 py-0.5 rounded-full border border-indigo-700">0 memories</span>
+          </div>
+
+          <div id="memoriesContent" class="flex-1 space-y-3 overflow-y-auto max-h-[500px] text-xs text-slate-300 pr-1">
+            <p class="text-slate-500 italic">Recalled post-mortems and prior feedback will be listed here...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Side-by-Side Compare Mode View (OFF vs ON) -->
+    <div id="compareResultsView" class="hidden grid grid-cols-1 md:grid-cols-2 gap-6">
+
+      <!-- Left Column: Memory OFF -->
+      <div class="bg-slate-800 rounded-xl border border-rose-900/50 p-5 shadow-lg space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-700 pb-2">
+          <h2 class="text-base font-bold text-rose-400 flex items-center gap-2">
+            <i class="fa-solid fa-toggle-off"></i> Without Memory (LLM Only)
+          </h2>
+          <span class="text-xs bg-rose-900/40 text-rose-300 px-2 py-0.5 rounded border border-rose-800">Memory OFF</span>
+        </div>
+
+        <div>
+          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Diagnosis:</h3>
+          <div id="compareOffDiagnosis" class="text-xs text-slate-300 leading-relaxed bg-slate-900/60 p-3 rounded-lg border border-slate-700 min-h-[80px]">
+            <p class="text-slate-500 italic">Awaiting comparison run...</p>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Suggested Steps:</h3>
+          <div id="compareOffSteps" class="space-y-1 text-xs bg-slate-900/60 p-3 rounded-lg border border-slate-700 min-h-[80px]">
+            <p class="text-slate-500 italic">Steps will appear here...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Memory ON -->
+      <div class="bg-slate-800 rounded-xl border border-emerald-900/50 p-5 shadow-lg space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-700 pb-2">
+          <h2 class="text-base font-bold text-emerald-400 flex items-center gap-2">
+            <i class="fa-solid fa-toggle-on"></i> With Hindsight Memory
+          </h2>
+          <span class="text-xs bg-emerald-900/40 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800">Memory ON</span>
+        </div>
+
+        <div>
+          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Diagnosis:</h3>
+          <div id="compareOnDiagnosis" class="text-xs text-slate-300 leading-relaxed bg-slate-900/60 p-3 rounded-lg border border-slate-700 min-h-[80px]">
+            <p class="text-slate-500 italic">Awaiting comparison run...</p>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Suggested Steps:</h3>
+          <div id="compareOnSteps" class="space-y-1 text-xs bg-slate-900/60 p-3 rounded-lg border border-slate-700 min-h-[80px]">
+            <p class="text-slate-500 italic">Steps will appear here...</p>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <i class="fa-solid fa-box-archive"></i> Recalled Past Incidents ({<span id="compareMemCount">0</span>}):
+          </h3>
+          <div id="compareOnMemories" class="space-y-2 text-xs max-h-[220px] overflow-y-auto pr-1">
+            <p class="text-slate-500 italic">Memories will be listed here...</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Pattern Reflection Modal / Drawer -->
+    <div id="patternsModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-slate-800 border border-slate-700 rounded-xl max-w-3xl w-full p-6 shadow-2xl max-h-[85vh] flex flex-col">
+        <div class="flex items-center justify-between border-b border-slate-700 pb-3 mb-4">
+          <h2 class="text-lg font-bold text-slate-100 flex items-center gap-2">
+            <i class="fa-solid fa-diagram-project text-indigo-400"></i> Recurring Incident Patterns (Hindsight Reflect)
+          </h2>
+          <button onclick="closePatternsModal()" class="text-slate-400 hover:text-white transition text-lg">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <div id="patternsContent" class="flex-1 overflow-y-auto text-sm text-slate-300 leading-relaxed whitespace-pre-wrap bg-slate-900 p-4 rounded-lg border border-slate-700 font-mono">
+          Loading pattern reflection from Hindsight memory bank...
+        </div>
+
+        <div class="mt-4 flex justify-end">
+          <button onclick="closePatternsModal()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 px-4 py-2 rounded-lg text-sm font-medium transition">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-slate-800 border-t border-slate-700 py-3 text-center text-xs text-slate-500">
+    OnCallMemory Agent &bull; Powered by FastAPI & Hindsight Client Memory Bank
+  </footer>
+
+  <!-- App Script -->
+  <script>
+    const sampleAlerts = {
+      1: `sqlalchemy.exc.TimeoutError: QueuePool limit of size 20 overflow 10 reached, connection timed out, timeout 30.00 (Background: psycopg2.OperationalError: FATAL: remaining connection slots are reserved for non-replication superuser connections)
+Service: checkout-service
+Impact: HTTP 500 Spike on Checkout API during flash sale. Customers unable to complete orders.`,
+      2: `psycopg2.OperationalError: FATAL: sorry, too many clients already. Connection pool exhausted at max_connections=200.
+Service: user-profile-service
+Impact: Intermittent HTTP 504 Gateway Timeout on user profile page loads and setting updates.`,
+      3: `asyncpg.exceptions.TooManyConnectionsError: sorry, too many clients already. Connection limit reached for user 'billing_app'.
+Service: billing-service
+Impact: Payment processing delayed and webhook processing failing with connection timed out errors.`,
+      4: `redis.exceptions.ConnectionError: Error 111 connecting to 10.0.4.12:6379. Connection refused. Redis memory usage hit maxmemory ceiling 8GB.
+Service: auth-service
+Impact: Users logged out unexpectedly; login endpoint returning HTTP 500 for 15% of auth attempts.`
+    };
+
+    let isCompareMode = false;
+
+    // Toggle single memory toggle label
+    document.getElementById('memoryToggle').addEventListener('change', function(e) {
+      const label = document.getElementById('memoryToggleLabel');
+      if (e.target.checked) {
+        label.textContent = 'ENABLED';
+        label.className = 'ml-2 text-xs font-semibold text-emerald-400';
+      } else {
+        label.textContent = 'DISABLED';
+        label.className = 'ml-2 text-xs font-semibold text-slate-400';
+      }
+    });
+
+    function toggleCompareMode() {
+      isCompareMode = document.getElementById('compareToggle').checked;
+      const singleView = document.getElementById('singleResultsView');
+      const compareView = document.getElementById('compareResultsView');
+      const singleMemToggle = document.getElementById('singleMemoryToggleContainer');
+
+      if (isCompareMode) {
+        singleView.classList.add('hidden');
+        compareView.classList.remove('hidden');
+        singleMemToggle.classList.add('opacity-40', 'pointer-events-none');
+      } else {
+        compareView.classList.add('hidden');
+        singleView.classList.remove('hidden');
+        singleMemToggle.classList.remove('opacity-40', 'pointer-events-none');
+      }
+    }
+
+    function loadSampleAlert(id) {
+      document.getElementById('alertText').value = sampleAlerts[id] || '';
+    }
+
+    function showStatus(message, isError = false) {
+      const banner = document.getElementById('statusBanner');
+      banner.classList.remove('hidden', 'bg-emerald-900/40', 'border-emerald-700', 'text-emerald-300', 'bg-rose-900/40', 'border-rose-700', 'text-rose-300');
+      if (isError) {
+        banner.classList.add('bg-rose-900/40', 'border-rose-700', 'text-rose-300');
+      } else {
+        banner.classList.add('bg-emerald-900/40', 'border-emerald-700', 'text-emerald-300');
+      }
+      banner.innerHTML = message;
+      setTimeout(() => { banner.classList.add('hidden'); }, 5000);
+    }
+
+    async function seedDatabase() {
+      const btn = document.getElementById('seedBtn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Seeding Hindsight...';
+
+      try {
+        const resp = await fetch('/seed', { method: 'POST' });
+        const data = await resp.json();
+        if (resp.ok) {
+          showStatus(`<i class="fa-solid fa-check-circle"></i> ${data.message}`);
+        } else {
+          showStatus(`<i class="fa-solid fa-triangle-exclamation"></i> Error seeding: ${data.detail || 'Failed'}`, true);
+        }
+      } catch (err) {
+        showStatus(`<i class="fa-solid fa-triangle-exclamation"></i> Network error seeding: ${err.message}`, true);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-database text-indigo-400"></i> Seed Hindsight Bank';
+      }
+    }
+
+    async function submitIncident() {
+      const alertText = document.getElementById('alertText').value.trim();
+      if (!alertText) {
+        alert('Please paste an alert description or stack trace first.');
+        return;
+      }
+
+      const analyzeBtn = document.getElementById('analyzeBtn');
+      analyzeBtn.disabled = true;
+      analyzeBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analyzing Incident...';
+
+      if (isCompareMode) {
+        await runCompareMode(alertText);
+      } else {
+        await runSingleMode(alertText);
+      }
+
+      analyzeBtn.disabled = false;
+      analyzeBtn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> Analyze & Diagnose Incident';
+    }
+
+    async function runSingleMode(alertText) {
+      const memoryEnabled = document.getElementById('memoryToggle').checked;
+
+      try {
+        const resp = await fetch('/incident', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ alert_text: alertText, memory: memoryEnabled })
+        });
+
+        const data = await resp.json();
+        if (!resp.ok) {
+          showStatus(`Error analyzing incident: ${data.detail || 'Failed'}`, true);
+          return;
+        }
+
+        // Render diagnosis
+        document.getElementById('diagnosisContent').innerText = data.diagnosis || 'No diagnosis returned.';
+
+        // Render steps
+        const stepsContainer = document.getElementById('stepsContent');
+        stepsContainer.innerHTML = '';
+        if (data.suggested_steps && data.suggested_steps.length > 0) {
+          data.suggested_steps.forEach((step, idx) => {
+            const stepEl = document.createElement('div');
+            stepEl.className = 'bg-slate-900/80 border border-slate-700 p-2.5 rounded-lg flex items-start gap-2.5';
+            stepEl.innerHTML = `<span class="bg-emerald-900/60 text-emerald-300 font-mono text-xs px-2 py-0.5 rounded border border-emerald-700">${idx+1}</span> <span class="text-slate-200">${step}</span>`;
+            stepsContainer.appendChild(stepEl);
+          });
+        } else {
+          stepsContainer.innerHTML = '<p class="text-slate-500 italic">No specific steps returned.</p>';
+        }
+
+        // Render memories
+        const memsContainer = document.getElementById('memoriesContent');
+        memsContainer.innerHTML = '';
+        const memCount = data.recalled_memories ? data.recalled_memories.length : 0;
+        document.getElementById('memoriesCount').textContent = `${memCount} memories`;
+
+        if (memCount > 0) {
+          data.recalled_memories.forEach(mem => {
+            const memCard = document.createElement('div');
+            memCard.className = 'bg-slate-900 p-3 rounded-lg border border-slate-700/80 space-y-1.5';
+            memCard.innerHTML = `
+              <div class="flex items-center justify-between text-[11px] text-slate-400">
+                <span class="font-mono text-indigo-400">Relevance: ${(mem.score * 100).toFixed(0)}%</span>
+                <span class="truncate max-w-[150px]">${mem.context || 'Incident Memory'}</span>
+              </div>
+              <div class="text-xs text-slate-300 font-mono whitespace-pre-wrap bg-slate-950/50 p-2 rounded border border-slate-800 max-h-36 overflow-y-auto">${mem.content}</div>
+            `;
+            memsContainer.appendChild(memCard);
+          });
+        } else {
+          memsContainer.innerHTML = `<p class="text-slate-500 italic">${memoryEnabled ? 'No relevant past memories found in Hindsight bank.' : 'Memory is currently disabled.'}</p>`;
+        }
+
+        // Show feedback box
+        document.getElementById('feedbackBox').classList.remove('hidden');
+        document.getElementById('feedbackSuggestion').value = data.suggested_steps?.[0] || '';
+
+      } catch (err) {
+        showStatus(`Network error analyzing incident: ${err.message}`, true);
+      }
+    }
+
+    async function runCompareMode(alertText) {
+      document.getElementById('compareOffDiagnosis').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analyzing without memory...';
+      document.getElementById('compareOnDiagnosis').innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Recalling memory & analyzing...';
+
+      try {
+        const [respOff, respOn] = await Promise.all([
+          fetch('/incident', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alert_text: alertText, memory: false })
+          }),
+          fetch('/incident', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alert_text: alertText, memory: true })
+          })
+        ]);
+
+        const dataOff = await respOff.json();
+        const dataOn = await respOn.json();
+
+        // Render OFF column
+        document.getElementById('compareOffDiagnosis').innerText = dataOff.diagnosis || 'No diagnosis';
+        const offSteps = document.getElementById('compareOffSteps');
+        offSteps.innerHTML = '';
+        (dataOff.suggested_steps || []).forEach((s, i) => {
+          offSteps.innerHTML += `<div class="p-1.5 border-b border-slate-800 text-slate-300">${i+1}. ${s}</div>`;
+        });
+
+        // Render ON column
+        document.getElementById('compareOnDiagnosis').innerText = dataOn.diagnosis || 'No diagnosis';
+        const onSteps = document.getElementById('compareOnSteps');
+        onSteps.innerHTML = '';
+        (dataOn.suggested_steps || []).forEach((s, i) => {
+          onSteps.innerHTML += `<div class="p-1.5 border-b border-slate-800 text-emerald-200">${i+1}. ${s}</div>`;
+        });
+
+        // Render ON memories
+        const memsComp = document.getElementById('compareOnMemories');
+        memsComp.innerHTML = '';
+        const mems = dataOn.recalled_memories || [];
+        document.getElementById('compareMemCount').textContent = mems.length;
+
+        mems.forEach(m => {
+          memsComp.innerHTML += `
+            <div class="bg-slate-900 p-2 rounded border border-slate-700 text-slate-300 font-mono text-[11px] whitespace-pre-wrap max-h-24 overflow-y-auto">
+              ${m.content}
+            </div>
+          `;
+        });
+
+      } catch (err) {
+        showStatus(`Error running compare mode: ${err.message}`, true);
+      }
+    }
+
+    async function submitFeedback() {
+      const incidentId = document.getElementById('feedbackIncidentId').value.trim() || 'INC-GENERAL';
+      const suggestion = document.getElementById('feedbackSuggestion').value.trim();
+      const worked = document.querySelector('input[name="feedbackWorked"]:checked').value === 'true';
+      const notes = document.getElementById('feedbackNotes').value.trim();
+
+      if (!suggestion) {
+        alert('Please enter or verify the suggestion summary.');
+        return;
+      }
+
+      try {
+        const resp = await fetch('/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            incident_id: incidentId,
+            suggestion: suggestion,
+            worked: worked,
+            notes: notes
+          })
+        });
+
+        const data = await resp.json();
+        if (resp.ok) {
+          showStatus(`<i class="fa-solid fa-check-circle"></i> Outcome retained in Hindsight memory!`);
+          document.getElementById('feedbackNotes').value = '';
+        } else {
+          showStatus(`Error submitting feedback: ${data.detail || 'Failed'}`, true);
+        }
+      } catch (err) {
+        showStatus(`Network error submitting feedback: ${err.message}`, true);
+      }
+    }
+
+    async function fetchPatterns() {
+      const modal = document.getElementById('patternsModal');
+      const content = document.getElementById('patternsContent');
+      modal.classList.remove('hidden');
+      content.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Querying Hindsight reflect engine for recurring incident patterns...';
+
+      try {
+        const resp = await fetch('/patterns');
+        const data = await resp.json();
+        if (resp.ok) {
+          content.innerText = data.reflection || 'No recurring patterns identified yet.';
+        } else {
+          content.innerText = `Error fetching patterns: ${data.detail || 'Failed'}`;
+        }
+      } catch (err) {
+        content.innerText = `Network error fetching patterns: ${err.message}`;
+      }
+    }
+
+    function closePatternsModal() {
+      document.getElementById('patternsModal').classList.add('hidden');
+    }
+  </script>
+</body>
+</html>

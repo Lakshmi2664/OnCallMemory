@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+openai
+hindsight-client
+python-dotenv
+pytest
+httpx
